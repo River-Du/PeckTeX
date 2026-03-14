@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "app": "PeckTeX",
+  "exported_at": "2026-03-13T02:23:16.390173",
+  "history": [
+    "$$(a + b)^2 = a^2 + 2ab + b^2$$",
+    "$$\\mathcal{R}_{struct} = \\sqrt{ \\frac{ \\sum_{k=0}^{\\infty} \\oint_{\\Gamma} \\left( \\frac{ \\partial^2 \\Psi_{\\mu,\\nu}^k }{ \\partial \\xi_i \\partial \\xi_j } \\right) e^{ -\\frac{\\alpha t}{\\beta} } dt }{ \\prod_{m=1}^{N} \\det \\left( \\mathbf{A}_m \\otimes \\mathbf{B}_m^{-1} \\right) } } + \\lim_{\\epsilon \\to 0} \\int_{\\Omega} \\nabla \\cdot ( \\mathbf{F} \\times \\mathbf{G} ) \\, d\\omega$$",
+    "$$\n\\begin{aligned}\n\\oint \\mathbf{E} \\cdot d\\mathbf{S} &= \\frac{q}{\\varepsilon_0} \\\\\n\\oint \\mathbf{E} \\cdot d\\mathbf{l} &= -\\iint \\frac{\\partial \\mathbf{B}}{\\partial t} \\cdot d\\mathbf{S} \\\\\n\\oint \\mathbf{B} \\cdot d\\mathbf{S} &= 0 \\\\\n\\oint \\mathbf{B} \\cdot d\\mathbf{l} &= \\mu_0 I + \\varepsilon_0 \\mu_0 \\iint \\frac{\\partial \\mathbf{E}}{\\partial t} \\cdot d\\mathbf{S}\n\\end{aligned}\n$$",
+    "$$\n{}_{i-1}T_i = \\begin{bmatrix}\n\\cos\\theta_i & -\\sin\\theta_i\\cos\\alpha_i & \\sin\\theta_i\\sin\\alpha_i & a_i\\cos\\theta_i \\\\\n\\sin\\theta_i & \\cos\\theta_i\\cos\\alpha_i & -\\cos\\theta_i\\sin\\alpha_i & a_i\\sin\\theta_i \\\\\n0 & \\sin\\alpha_i & \\cos\\alpha_i & d_i \\\\\n0 & 0 & 0 & 1\n\\end{bmatrix}\n$$"
+  ]
+}

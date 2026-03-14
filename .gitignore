@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Code Editors
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual Environments
+env/
+venv/
+ENV/
+.venv/
+
+# User Data (Runtime generated)
+userdata/
+
+# Temporary
+assets/icons/temp/
+
+# Configuration (Sensitive)
+config.json
+
+# Logs
+*.log
