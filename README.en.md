@@ -11,7 +11,7 @@
    [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 
-   **English** | [简体中文](./README.cn.md)
+   **English** | [简体中文](./README.md)
 
 
 </div>
