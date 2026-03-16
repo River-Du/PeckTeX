@@ -66,7 +66,7 @@
 如果你不打算改代码，建议直接下载 Release 版本使用：
 
 1. 打开项目 Releases 页面：<https://github.com/River-Du/PeckTeX/releases>
-2. 在最新版本中下载 Windows 压缩包 (通常为 `PeckTeX.zip`)。
+2. 点击最新版本号下的Assets, 在资源中找到 `PeckTeX.zip` ，点击下载。
 3. 解压到一个固定目录 (例如 `D:\PeckTeX\`，不要放在临时下载目录)。
 4. 进入解压后的目录，双击 `PeckTeX.exe` 启动。
 5. 创建桌面快捷方式 (Windows)：右击 `PeckTeX.exe` -> `发送到` -> `桌面快捷方式`。
