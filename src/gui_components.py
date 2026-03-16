@@ -22,12 +22,54 @@ import html as html_lib
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QPushButton, QLabel,
     QComboBox, QLineEdit, QTextEdit, QScrollArea, QFrame, QMenu,
-    QSizePolicy, QDialog, QStyledItemDelegate, QStyle, QStyleOptionComboBox, QCheckBox
+    QSizePolicy, QDialog, QStyledItemDelegate, QStyle, QStyleOptionComboBox, QStyleOptionViewItem, QCheckBox
 )
-from PySide6.QtCore import Qt, Signal, QEvent, QRect
-from PySide6.QtGui import QPixmap, QPainter, QTextBlockFormat, QTextCursor, QColor
+from PySide6.QtCore import Qt, Signal, QEvent, QRect, QSize
+from PySide6.QtGui import QPixmap, QPainter, QTextBlockFormat, QTextCursor, QColor, QFocusEvent
 
 from . import theme
+
+
+class FocusAwareTextEdit(QTextEdit):
+    """兼容不同 PySide 版本：通过 focus 事件同步内部 viewport 背景色。"""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._sync_viewport_style()
+
+    def _apply_viewport_style(self, focused: bool) -> None:
+        self.viewport().setStyleSheet(
+            theme.text_edit_viewport_style(focused=focused, enabled=self.isEnabled())
+        )
+
+    def _sync_viewport_style(self) -> None:
+        self._apply_viewport_style(focused=self.hasFocus())
+
+    def focusInEvent(self, event: QFocusEvent) -> None:
+        super().focusInEvent(event)
+        self._sync_viewport_style()
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        super().focusOutEvent(event)
+        self._sync_viewport_style()
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() in (
+            QEvent.Type.EnabledChange,
+            QEvent.Type.StyleChange,
+            QEvent.Type.PaletteChange,
+        ):
+            self._sync_viewport_style()
+
+
+def _event_pos_to_point(event: QEvent):
+    """兼容 PySide6 不同版本的鼠标/悬停事件坐标接口。"""
+    if hasattr(event, "position"):
+        return event.position().toPoint()
+    if hasattr(event, "pos"):
+        return event.pos()
+    return None
 
 
 def _make_header_btn(text: str, tooltip: str = "", style_fn=None) -> QPushButton:
@@ -36,23 +78,44 @@ def _make_header_btn(text: str, tooltip: str = "", style_fn=None) -> QPushButton
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setFixedHeight(22)
     btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-    btn.setStyleSheet((style_fn or theme.button_secondary)())
+    btn.setStyleSheet(theme.with_tooltip((style_fn or theme.button_secondary)()))
     if tooltip:
         btn.setToolTip(tooltip)
     return btn
 
 
 class DeleteItemDelegate(QStyledItemDelegate):
+    ITEM_HEIGHT = theme.combo_item_height()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.hovered_del_row: int = -1
 
+    def sizeHint(self, option, index) -> QSize:
+        size = super().sizeHint(option, index)
+        # 固定条目高度，避免新版 Qt 在不同主题下放大行高。
+        size.setHeight(self.ITEM_HEIGHT)
+        return size
+
     def paint(self, painter, option, index):
-        super().paint(painter, option, index)
         rect = option.rect
         colors = theme.DELEGATE_COLORS
         is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
         is_del_hovered = index.row() == self.hovered_del_row
+
+        # 先画自定义选中背景，避免后续被覆盖或挡住文本。
+        if is_selected:
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(colors['selected_bg']))
+            painter.drawRoundedRect(rect.adjusted(0, 0, -1, -1), 4, 4)
+            painter.restore()
+
+        # 屏蔽系统默认选中态绘制，避免系统主题色与自定义指示条叠加。
+        draw_opt = QStyleOptionViewItem(option)
+        draw_opt.state &= ~QStyle.StateFlag.State_Selected
+        draw_opt.state &= ~QStyle.StateFlag.State_HasFocus
+        super().paint(painter, draw_opt, index)
 
         if is_selected:
             painter.save()
@@ -96,11 +159,39 @@ class NonScrollComboBox(QComboBox):
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.setStyleSheet(theme.combobox_style())
+        self._normalize_font_point_size()
+        if hasattr(self.view(), "setUniformItemSizes"):
+            self.view().setUniformItemSizes(True)
+        self.view().setSpacing(0)
         self.view().viewport().installEventFilter(self)
         self.setItemDelegate(DeleteItemDelegate(self))
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         if self.lineEdit():
             self.lineEdit().setCursor(Qt.CursorShape.IBeamCursor)
+
+    def _normalize_font_point_size(self) -> None:
+        """为 ComboBox 及其子控件设置合法 pointSize，规避新版 Qt 对 -1 pointSize 的告警与尺寸异常。"""
+        font = self.font()
+        if font.pointSizeF() <= 0:
+            font.setPointSize(10)
+            self.setFont(font)
+
+        base_point_size = self.font().pointSize()
+        if base_point_size <= 0:
+            base_point_size = 10
+
+        view = self.view()
+        view_font = view.font()
+        if view_font.pointSizeF() <= 0:
+            view_font.setPointSize(base_point_size)
+            view.setFont(view_font)
+
+        line_edit = self.lineEdit()
+        if line_edit is not None:
+            line_font = line_edit.font()
+            if line_font.pointSizeF() <= 0:
+                line_font.setPointSize(base_point_size)
+                line_edit.setFont(line_font)
 
     def event(self, ev: QEvent) -> bool:
         """利用 Hover 事件精确控制光标：通过 subControlRect 获取箭头按钮精确区域，实现像素级对齐"""
@@ -110,8 +201,9 @@ class NonScrollComboBox(QComboBox):
             arrow_rect = self.style().subControlRect(
                 QStyle.ComplexControl.CC_ComboBox, opt, QStyle.SubControl.SC_ComboBoxArrow, self
             )
+            pos = _event_pos_to_point(ev)
             cursor = (Qt.CursorShape.PointingHandCursor
-                      if arrow_rect.contains(ev.position().toPoint())
+                      if pos is not None and arrow_rect.contains(pos)
                       else Qt.CursorShape.ArrowCursor)
             self.setCursor(cursor)
         elif ev.type() == QEvent.Type.HoverLeave:
@@ -136,7 +228,9 @@ class NonScrollComboBox(QComboBox):
     def eventFilter(self, obj, event):
         if obj == self.view().viewport():
             if event.type() == QEvent.Type.MouseMove:
-                pos = event.position().toPoint()
+                pos = _event_pos_to_point(event)
+                if pos is None:
+                    return super().eventFilter(obj, event)
                 index = self.view().indexAt(pos)
                 new_hovered = -1
                 if index.isValid():
@@ -155,7 +249,9 @@ class NonScrollComboBox(QComboBox):
                     self.view().viewport().update()
             elif event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
                 if event.button() == Qt.MouseButton.LeftButton:
-                    pos = event.position().toPoint()
+                    pos = _event_pos_to_point(event)
+                    if pos is None:
+                        return super().eventFilter(obj, event)
                     index = self.view().indexAt(pos)
                     if index.isValid():
                         rect = self.view().visualRect(index)
@@ -258,7 +354,7 @@ class SettingsPanel(QFrame):
         prompt_label.setContentsMargins(0, 4, 0, 0)
         layout.addWidget(prompt_label)
 
-        self.prompt_text = QTextEdit()
+        self.prompt_text = FocusAwareTextEdit()
         self.prompt_text.setStyleSheet(theme.input_style())
         self.prompt_text.setMaximumHeight(60)
         self.prompt_text.setAcceptRichText(False)
@@ -313,7 +409,7 @@ class SettingsPanel(QFrame):
 
         self.check_continuous = QCheckBox("连续识别")
         self.check_continuous.setStyleSheet(theme.checkbox_compact_style())
-        self.check_continuous.setToolTip("自动识别图片文件夹中的所有图片")
+        self.check_continuous.setToolTip("自动识别用户图片文件夹中的所有图片")
         self.check_continuous.stateChanged.connect(self._on_continuous_changed)
         checkbox_row2.addWidget(self.check_continuous)
 
@@ -338,7 +434,7 @@ class SettingsPanel(QFrame):
         self.btn_ss = QPushButton("截图")
         self.btn_ss.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_ss.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_ss.setStyleSheet(theme.button_action())
+        self.btn_ss.setStyleSheet(theme.with_tooltip(theme.button_action()))
         self.btn_ss.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.btn_ss.setMinimumHeight(36)
         self.btn_ss.setToolTip("截取屏幕区域作为识别图片")
@@ -348,7 +444,7 @@ class SettingsPanel(QFrame):
         self.btn_paste = QPushButton("粘贴")
         self.btn_paste.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_paste.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_paste.setStyleSheet(theme.button_action())
+        self.btn_paste.setStyleSheet(theme.with_tooltip(theme.button_action()))
         self.btn_paste.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.btn_paste.setMinimumHeight(36)
         self.btn_paste.setToolTip("从剪贴板粘贴图片")
@@ -358,7 +454,7 @@ class SettingsPanel(QFrame):
         btn_open = QPushButton("文件")
         btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_open.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn_open.setStyleSheet(theme.button_action())
+        btn_open.setStyleSheet(theme.with_tooltip(theme.button_action()))
         btn_open.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         btn_open.setMinimumHeight(36)
         btn_open.setToolTip("从文件选择图片")
@@ -368,7 +464,7 @@ class SettingsPanel(QFrame):
         action_layout.addLayout(input_btn_layout)
 
         self.recognize_btn = QPushButton("开始识别")
-        self.recognize_btn.setStyleSheet(theme.button_primary())
+        self.recognize_btn.setStyleSheet(theme.with_tooltip(theme.button_primary()))
         self.recognize_btn.setMinimumHeight(44)
         self.recognize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.recognize_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -412,11 +508,11 @@ class SettingsPanel(QFrame):
 
         if self.is_running:
             self.recognize_btn.setText("终止")
-            self.recognize_btn.setStyleSheet(theme.button_danger_large())
+            self.recognize_btn.setStyleSheet(theme.with_tooltip(theme.button_danger_large()))
             self.recognize_btn.setToolTip("终止当前任务")
         else:
             self.recognize_btn.setText("开始识别")
-            self.recognize_btn.setStyleSheet(theme.button_primary())
+            self.recognize_btn.setStyleSheet(theme.with_tooltip(theme.button_primary()))
             self._update_recognize_tooltip()
 
     def set_screenshot_shortcut_text(self, text: str):
@@ -643,7 +739,7 @@ class ImagePreviewPanel(QFrame):
         
         title_row.addStretch()
         
-        btn_open_folder = _make_header_btn("图片文件夹", "打开内置图片文件夹，可暂存图片和点击“下一张”载入。\r\n勾选连续识别后会自动识别该文件夹中的所有图片")
+        btn_open_folder = _make_header_btn("图片文件夹", "打开用户图片文件夹，可暂存图片和点击“下一张”载入。\r\n勾选连续识别后会自动识别该文件夹中的所有图片")
         btn_open_folder.clicked.connect(lambda: self.openFolderRequested.emit())
         title_row.addWidget(btn_open_folder)
         
@@ -733,7 +829,7 @@ class ImagePreviewPanel(QFrame):
         act_clear = menu.addAction("清除图片")
         act_clear.setEnabled(has_img)
 
-        act_save = menu.addAction("保存到图片文件夹")
+        act_save = menu.addAction("保存到用户图片文件夹")
         act_save.setEnabled(has_img)
 
         menu.addSeparator()
@@ -822,7 +918,7 @@ class ResultPanel(QFrame):
         layout.addWidget(title_container)
 
     def _build_content(self, layout: QVBoxLayout):
-        self.result_text = QTextEdit()
+        self.result_text = FocusAwareTextEdit()
         self.result_text.setStyleSheet(theme.result_text_style())
         self.result_text.setMinimumHeight(0)
         self.result_text.setAcceptRichText(False)
@@ -885,7 +981,8 @@ class HistoryPanel(QFrame):
         self.scroll_area.setMinimumHeight(0)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setStyleSheet(f"QScrollArea {{ {theme.scroll_area_bg()} }}")
+        self.scroll_area.setStyleSheet(f"QScrollArea {{ {theme.history_scroll_area_style()} }}")
+        self.scroll_area.viewport().setStyleSheet(theme.history_scroll_viewport_style())
         self.scroll_area.wheelEvent = WheelEventFilter.create(self.scroll_area)
 
         self.history_container = QWidget()
@@ -1082,7 +1179,7 @@ class CollapsibleChatPanel(QFrame):
 
         self.btn_send = QPushButton("发送")
         self.btn_send.setFixedHeight(26)
-        self.btn_send.setStyleSheet(theme.button_secondary())
+        self.btn_send.setStyleSheet(theme.with_tooltip(theme.button_secondary()))
         self.btn_send.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_send.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_send.setToolTip("发送消息给AI")
@@ -1213,10 +1310,10 @@ class CollapsibleChatPanel(QFrame):
         self.is_running = running
         if self.is_running:
             self.btn_send.setText("终止")
-            self.btn_send.setStyleSheet(theme.button_danger())
+            self.btn_send.setStyleSheet(theme.with_tooltip(theme.button_danger()))
         else:
             self.btn_send.setText("发送")
-            self.btn_send.setStyleSheet(theme.button_secondary())
+            self.btn_send.setStyleSheet(theme.with_tooltip(theme.button_secondary()))
 
     def _on_chat_history_context_menu(self, pos) -> None:
         """右键菜单：选中文本时增加「追加至识别结果」选项"""
@@ -1236,9 +1333,6 @@ class CollapsibleChatPanel(QFrame):
         if "正在" in msg or "测试" in msg:
             return "loading"
         return "info"
-
-    def update_status_from_sys(self, msg: str):
-        self.set_status(msg, self._infer_icon_from_msg(msg))
 
     def trim_log(self, max_entries: int) -> int:
         """移除超出上限的旧日志条目，返回移除的条目数"""

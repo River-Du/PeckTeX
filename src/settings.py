@@ -142,17 +142,34 @@ class SettingsManager:
             self._validate_defaults()
             self.save()
 
+    @staticmethod
+    def _coerce_float_in_range(value: Any, default: float, min_val: float, max_val: float) -> float:
+        """将输入值收敛为指定区间内的浮点数，失败时回退默认值。"""
+        try:
+            parsed = float(value) if value not in (None, "") else default
+        except (ValueError, TypeError):
+            return default
+        return parsed if min_val <= parsed <= max_val else default
+
+    @staticmethod
+    def _coerce_int_in_range(value: Any, default: int, min_val: int, max_val: int) -> int:
+        """将输入值收敛为指定区间内的整数，失败时回退默认值。"""
+        try:
+            parsed = int(value)
+        except (ValueError, TypeError):
+            return default
+        return parsed if min_val <= parsed <= max_val else default
+
     def _validate_defaults(self) -> None:
         """校验配置数据(api_timeout, default)，若不合法则自动回退"""
         # --- 校验 api_timeout，若超出数值范围或非法，则回退为默认值---
         default_timeout = DEFAULT_CONFIG["api_timeout"]
-        try:
-            val = self.settings_data.get("api_timeout")
-            timeout_val = float(val) if val not in (None, "") else default_timeout
-            if not (0.1 <= timeout_val <= 300.0):
-                timeout_val = default_timeout
-        except (ValueError, TypeError):
-            timeout_val = default_timeout
+        timeout_val = self._coerce_float_in_range(
+            self.settings_data.get("api_timeout"),
+            default_timeout,
+            0.1,
+            300.0,
+        )
         self.settings_data["api_timeout"] = timeout_val
         # --- 校验 image_sort，仅接受 'time' 和 'name' ---
         if self.settings_data.get("image_sort") not in {"time", "name"}:
@@ -163,13 +180,12 @@ class SettingsManager:
             "max_log": (10, 1000),
         }
         for key, (min_val, max_val) in limits.items():
-            try:
-                val = int(self.settings_data.get(key, DEFAULT_CONFIG[key]))
-                if not (min_val <= val <= max_val):
-                    val = DEFAULT_CONFIG[key]
-            except (ValueError, TypeError):
-                val = DEFAULT_CONFIG[key]
-            self.settings_data[key] = val
+            self.settings_data[key] = self._coerce_int_in_range(
+                self.settings_data.get(key, DEFAULT_CONFIG[key]),
+                DEFAULT_CONFIG[key],
+                min_val,
+                max_val,
+            )
         # --- 校验 default，若为空或不合法则回退为其可用列表的第一个有效值 ---
         default_cfg = self.settings_data.get("default", {})
         # 校验与生成 default:platform
@@ -238,7 +254,7 @@ class SettingsManager:
                 json.dump(self.settings_data, f, ensure_ascii=False, indent=4)
             return True
         except Exception:
-            self.last_error = "保存配置失败！"
+            self.last_error = "保存配置失败。"
             return False
 
     def reset_to_defaults(self) -> bool:

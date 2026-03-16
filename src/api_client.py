@@ -16,6 +16,7 @@
 
 import base64
 import mimetypes
+import threading
 from typing import List, Dict, Any, Optional, Generator, NoReturn
 
 import httpx
@@ -37,18 +38,17 @@ class FormulaAPIClient:
     _BLOCK_LIST = ["\n<|begin_of_box|>", "<|end_of_box|>", "<|box_start|>", "<|box_end|>"]
 
     def __init__(self):
-        self._provider: str = ""
         self._api_key: str = ""
         self._api_url: str = ""
         self._timeout_val: float = 30.0
         self.conversation_history: List[Dict[str, Any]] = []
         self._cached_client: Optional[OpenAI] = None
         self._cached_client_key: str = ""
+        self._client_lock = threading.RLock()
 
-    def set_credentials(self, api_key: str, provider: str, api_url: str, timeout_val: float) -> None:
-        """更新底层的验证及提供商信息"""
+    def set_credentials(self, api_key: str, api_url: str, timeout_val: float) -> None:
+        """更新底层的鉴权信息与请求地址。"""
         self._api_key = api_key
-        self._provider = provider
         self._api_url = api_url
         self._timeout_val = timeout_val
 
@@ -62,7 +62,7 @@ class FormulaAPIClient:
                 return base64.b64encode(f.read()).decode("utf-8")
         except FileNotFoundError:
             raise ValueError(f"找不到图片文件：{image_path}")
-        except Exception as e:
+        except OSError as e:
             raise ValueError(f"读取图片失败: {str(e)}")
 
     def _get_client(self) -> OpenAI:
@@ -70,20 +70,21 @@ class FormulaAPIClient:
         if not self._api_key:
             raise APIError("未提供 API Key，请先在配置中填写。")
 
-        cache_key = f"{self._api_key}:{self._api_url}:{self._timeout_val}"
-        if self._cached_client and self._cached_client_key == cache_key:
-            return self._cached_client
+        with self._client_lock:
+            cache_key = f"{self._api_key}:{self._api_url}:{self._timeout_val}"
+            if self._cached_client and self._cached_client_key == cache_key:
+                return self._cached_client
 
-        # 连接超时短，读取超时长（等待视觉模型处理图片后的首个 token）
-        structured_timeout = httpx.Timeout(self._timeout_val, connect=5.0)
-        self._cached_client = OpenAI(
-            api_key=self._api_key,
-            base_url=self._api_url if self._api_url else None,
-            timeout=structured_timeout,
-            max_retries=0
-        )
-        self._cached_client_key = cache_key
-        return self._cached_client
+            # 连接超时短，读取超时长（等待视觉模型处理图片后的首个 token）
+            structured_timeout = httpx.Timeout(self._timeout_val, connect=5.0)
+            self._cached_client = OpenAI(
+                api_key=self._api_key,
+                base_url=self._api_url if self._api_url else None,
+                timeout=structured_timeout,
+                max_retries=0
+            )
+            self._cached_client_key = cache_key
+            return self._cached_client
 
     def _raise_api_error(self, e: Exception) -> NoReturn:
         """将底层异常统一转换为 APIError，供 UI 层展示"""
@@ -228,13 +229,14 @@ class FormulaAPIClient:
 
     def interrupt(self) -> None:
         """关闭当前的 HTTP 客户端以强行打断可能阻塞的网络请求，并清除缓存以便下一次请求重建"""
-        if self._cached_client:
-            try:
-                self._cached_client.close()
-            except Exception:
-                pass
-            self._cached_client = None
-            self._cached_client_key = ""
+        with self._client_lock:
+            if self._cached_client:
+                try:
+                    self._cached_client.close()
+                except Exception:
+                    pass
+                self._cached_client = None
+                self._cached_client_key = ""
 
     def clear_history(self) -> None:
         """清除对话历史记录，重置上下文"""

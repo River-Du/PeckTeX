@@ -23,6 +23,13 @@ from PySide6.QtGui import QCursor, QPixmap, QMouseEvent, QKeyEvent
 from PySide6.QtCore import Qt, QRect, QPoint
 
 
+def _event_pos_to_point(event) -> QPoint:
+    """兼容 PySide6 新旧版本事件坐标接口。"""
+    if hasattr(event, "position"):
+        return event.position().toPoint()
+    return event.pos()
+
+
 class CaptureWindow(QWidget):
     """
     针对单一显示器的浮层。多显示器环境下，每块屏分别独占一个 CaptureWindow。
@@ -103,7 +110,7 @@ class CaptureWindow(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """鼠标按下，确定起点并初始化选区状态"""
         if event.button() == Qt.MouseButton.LeftButton:
-            self.start_point = event.position().toPoint()
+            self.start_point = _event_pos_to_point(event)
             self.end_point = self.start_point
             self.is_drawing = True
             self.update_masks()
@@ -113,14 +120,14 @@ class CaptureWindow(QWidget):
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """鼠标拖拽移动，纯图形推移"""
         if self.is_drawing:
-            self.end_point = event.position().toPoint()
+            self.end_point = _event_pos_to_point(event)
             self.update_masks()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """鼠标松开，换算至物理高分屏坐标，从内存原始图像获取无损裁切"""
         if event.button() == Qt.MouseButton.LeftButton and self.is_drawing:
             self.is_drawing = False
-            self.end_point = event.position().toPoint()
+            self.end_point = _event_pos_to_point(event)
             
             rect = QRect(self.start_point, self.end_point).normalized()
             
@@ -175,12 +182,17 @@ class ScreenCapture:
             w.raise_()
             w.activateWindow()
 
-    def finish_capture(self, path: str) -> None:
-        # 卸载所有屏罩
+    def _dispose_windows(self) -> None:
+        """集中释放截图浮层，避免多路径清理不一致。"""
         for w in self.capture_windows:
             w.hide()
+            w.close()
             w.deleteLater()
         self.capture_windows.clear()
+
+    def finish_capture(self, path: str) -> None:
+        # 卸载所有屏罩
+        self._dispose_windows()
         
         self.temp_file = path
         if self.callback:
@@ -189,10 +201,7 @@ class ScreenCapture:
             cb(path)
 
     def cancel_capture(self) -> None:
-        for w in self.capture_windows:
-            w.hide()
-            w.deleteLater()
-        self.capture_windows.clear()
+        self._dispose_windows()
         
         if self.callback:
             cb = self.callback

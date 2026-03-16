@@ -51,6 +51,14 @@ THEME = {
     "viewer_bg": "#2E2E2E",
 }
 
+# Tooltip 统一由 QApplication 全局样式控制；必要时可切换为局部注入。
+EMBED_TOOLTIP_IN_WIDGET_STYLE = False
+
+
+def combo_item_height() -> int:
+    """下拉框列表项标准高度（px）。"""
+    return 30
+
 
 def button_primary() -> str:
     """主要操作按钮样式，用于开始识别等核心操作。"""
@@ -219,7 +227,6 @@ def combobox_style() -> str:
             border-radius: 6px;
             padding: 4px 6px;
             color: {THEME['text_primary']};
-            font-size: 12px;
         }}
         QComboBox:hover {{
             background-color: {THEME['input_bg_hover']};
@@ -251,8 +258,7 @@ def combobox_style() -> str:
             outline: none;
         }}
         QComboBox QAbstractItemView::item {{
-            padding: 4px 8px;
-            min-height: 20px;
+            padding: 2px 8px;
         }}
         QComboBox:disabled {{
             background-color: {THEME['input_bg_disabled']};
@@ -288,6 +294,30 @@ def result_text_style() -> str:
     """
 
 
+def text_edit_viewport_style(focused: bool = False, enabled: bool = True) -> str:
+    """QTextEdit 内部 viewport 样式，用于兼容不同 Qt/PySide 版本的焦点/禁用态渲染差异。"""
+    if not enabled:
+        bg = THEME['input_bg_disabled']
+        fg = THEME['text_hint']
+    else:
+        bg = "white" if focused else THEME['input_bg']
+        fg = THEME['text_primary']
+    return (
+        f"background-color: {bg};"
+        f" color: {fg};"
+    )
+
+
+def history_scroll_area_style() -> str:
+    """历史记录滚动区外层样式。"""
+    return "border: none; background: transparent;"
+
+
+def history_scroll_viewport_style() -> str:
+    """历史记录滚动区 viewport 样式，负责圆角和灰色背景。"""
+    return f"background: {THEME['input_bg']}; border-radius: 6px;"
+
+
 def history_item_style() -> str:
     """历史记录项样式，只读输入框。"""
     return f"""
@@ -303,18 +333,31 @@ def history_item_style() -> str:
     """
 
 
-def tooltip_style() -> str:
-    """全局工具提示样式。"""
+def tooltip_style_rule() -> str:
+    """QToolTip 通用样式规则片段，可嵌入到局部组件样式中。"""
     return f"""
         QToolTip {{
             color: {THEME['text_primary']};
             background-color: white;
             border: 1px solid {THEME['neutral_border']};
+            border-radius: 6px;
             font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
             font-size: 12px;
-            padding: 0 3px;
+            padding: 2px 6px;
         }}
     """
+
+
+def with_tooltip(style: str) -> str:
+    """为局部控件样式附加统一 tooltip 规则，避免回退到系统默认 tooltip 外观。"""
+    if EMBED_TOOLTIP_IN_WIDGET_STYLE:
+        return f"{style}\n{tooltip_style_rule()}"
+    return style
+
+
+def tooltip_style() -> str:
+    """全局工具提示样式。"""
+    return tooltip_style_rule()
 
 
 def label_title() -> str:
@@ -375,11 +418,6 @@ def image_preview_placeholder() -> str:
         font-size: 12px;
         border-radius: 6px;
     """
-
-
-def scroll_area_bg() -> str:
-    """滚动区域背景样式。"""
-    return f"border: none; background: {THEME['input_bg']}; border-radius: 6px;"
 
 
 def splitter_handle() -> str:

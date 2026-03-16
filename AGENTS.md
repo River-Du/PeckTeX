@@ -6,14 +6,14 @@
 
 - **回答语言**：始终使用中文，无论用户用什么语言提问
 - **修改原则**：架构融合优先，禁止临时补丁；改动前先读懂上下文；Final Check 逐行模拟执行
-- **环境约束**：不运行代码、不修改 conda 环境、不安装包
+- **环境约束**：默认不运行代码、不修改 conda 环境、不安装包；仅在用户明确要求时执行
 
 ## 项目背景
 
 **啄玛 (PeckTeX)** 是一款基于 Python 与 PySide6 开发的轻量级桌面应用。
 软件通过调用视觉语言大模型（VLM）API，提取图片中包含的数学公式、化学方程式、手写推导过程以及表格图表等内容，识别并转换为 LaTeX 等标记语言代码。
 核心流程：截图/粘贴/文件导入 -> VLM API 识别 -> 结果流式输出 -> HTML/KaTeX 预览。功能涵盖自动化识别、连续识别、多轮 AI 对话修正及完善的记录管理。
-版本 v1.0，作者 RiverDu，依赖：`PySide6>=6.5.0`、`openai>=1.1.0`、`httpx>=0.24.0`。
+版本 v1.0，作者 RiverDu，依赖：`PySide6>=6.5.3`、`openai>=1.30.1`、`httpx>=0.27.0`。
 
 ## 模块结构与依赖
 
@@ -56,7 +56,10 @@ main.py -> gui.py + theme.py
 ## 核心业务模式
 
 ### 配置管理
-配置通过 `SettingsManager` 读写工作目录下的 `config.json`；提供 `DEFAULT_CONFIG` 进行格式及字段缺失（`_ensure_required_keys`）校验。
+配置通过 `SettingsManager` 读写 `userdata/config/config.json`；提供 `DEFAULT_CONFIG` 进行格式及字段缺失（`_ensure_required_keys`）校验。
+路径约定：
+- 源码运行：`项目根目录/userdata/config/config.json`
+- 打包运行：`exe 同级目录/userdata/config/config.json`
 主界面对设置的修改操作应保留在 `self.draft`（深拷贝临时字典）中，仅在用户触发“保存”时持久化到磁盘并重载。
 
 ### API 客户端
@@ -66,18 +69,29 @@ main.py -> gui.py + theme.py
 
 ### KaTeX 渲染
 将文本流交至 `renderer.py` 时，自动尝试检测及补全定界符（`$$`/`\[`/`\(`/`\begin{` 等）；针对多个 `$$...$$` 提供竖排分块等处理。在系统环境生成临时 HTML。
-临时网页文件路径注册至全局 `_temp_files`，并在主程序退出时主动清理系统空间。
+临时文件路径在主窗体中注册至 `_temp_files`，并在 `closeEvent` 中进行清理。
+
+### 发布与脚本约定
+- `run.bat`：开发环境一键启动（`pythonw main.py`）。
+- `build.bat`：PyInstaller onedir 打包脚本，支持 `--debug` / `--release`。
+- 打包输出：`dist/PeckTeX/PeckTeX.exe`。
+- 发布目录中的 `_internal` 为运行时核心目录，不可删除。
+- 文档变更需同步 `README.md` 与 `README.en.md`，保持章节结构一致。
+
+### 安全约束
+- 严禁在文档、示例、默认配置中提交真实 API Key。
+- 发现 `config.json` 含真实密钥时，修改文档应提醒脱敏，不应扩散或复制密钥内容。
 
 ### 配置文件结构 (config.json)
 
-核心预设均映射在 `config.json`：
+核心预设均映射在 `userdata/config/config.json`：
 
 ```json
 {
-    "auto_recognize": false, "auto_copy": false,
+    "auto_recognize": true, "auto_copy": true,
     "continuous_recognition": false, "continuous_chat": false, "text_recognition": false,
-    "language": "zh_CN", "theme": "light", "image_sort": "time",
-    "api_timeout": 30.0, "max_history": 100, "max_log": 500,
+    "language": "", "theme": "", "image_sort": "time",
+    "api_timeout": 30.0, "max_history": 100, "max_log": 100,
     "shortcuts": { "screenshot": "Alt+S", "paste": "Ctrl+V", "recognize": "Alt+Return" },
     "default": { "platform": "", "model": "", "function": "" },
     "platforms": { "<平台名>": { "api_url": "", "api_key": "", "models": [] } },
@@ -95,4 +109,4 @@ main.py -> gui.py + theme.py
 
 #### 系统参数：
 - `image_sort`: 本地文件读取排序方式： `"time"` (按修改时间) 或 `"name"` (按文件名)。仅支持 JSON 直接配置。
-- `api_timeout`, `max_history` (1-1000 限额), `max_log` (100-10000 限额) 限定阈值。
+- `api_timeout`, `max_history` (10-1000 限额), `max_log` (10-1000 限额) 限定阈值。

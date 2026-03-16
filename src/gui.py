@@ -22,7 +22,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Iterator, Callable, Tuple
 
 from copy import deepcopy
 from dataclasses import dataclass
@@ -43,6 +43,12 @@ from . import theme
 
 
 _TERMINATORS = ("。", "！", "？", ".", "!", "?", "...", "…", "）", ")")
+
+HISTORY_REFRESH_DEBOUNCE_MS = 100
+CHAT_PANEL_MIN_EXPANDED_HEIGHT = 150
+WORKER_WAIT_TIMEOUT_MS = 200
+SCREENSHOT_MINIMIZE_DELAY_MS = 400
+CONTINUOUS_RECOGNIZE_DELAY_MS = 500
 
 def _ensure_punctuation(text: str) -> str:
     """确保文本以标点结尾"""
@@ -71,21 +77,21 @@ class APIWorker(QThread):
         super().__init__(parent)
         self.api = api
         self.config = config
-        self.is_aborted = False
+        self._is_aborted: bool = False
 
-    def abort(self):
-        self.is_aborted = True
+    def abort(self) -> None:
+        self._is_aborted = True
         if hasattr(self.api, 'interrupt'):
             self.api.interrupt()
 
-    def run(self):
+    def run(self) -> None:
         try:
             self.api.set_credentials(
                 self.config.api_key, 
-                self.config.platform, 
                 self.config.api_url, 
                 self.config.timeout
             )
+            generator: Iterator[str]
             if self.config.img_path:
                 generator = self.api.chat_with_image(
                     self.config.img_path, 
@@ -101,16 +107,16 @@ class APIWorker(QThread):
                 )
 
             for chunk in generator:
-                if self.is_aborted:
+                if self._is_aborted:
                     break
                 self.chunk_signal.emit(chunk)
 
-            if not self.is_aborted:
+            if not self._is_aborted:
                 self.finished_signal.emit()
 
         except Exception as e:
-            if not self.is_aborted:
-                self.error_signal.emit(str(e))
+            if not self._is_aborted:
+                self.error_signal.emit(str(e) or "未知错误")
 
 
 class TestWorker(QThread):
@@ -133,7 +139,7 @@ class TestWorker(QThread):
 
     def run(self):
         try:
-            self._api.set_credentials(self.api_key, self.platform, self.api_url, self.timeout)
+            self._api.set_credentials(self.api_key, self.api_url, self.timeout)
             result = self._api.test_connection(self.model)
             if not self._is_aborted:
                 self.success_signal.emit(result)
@@ -180,10 +186,11 @@ class PeckTeXMainWindow(QMainWindow):
         self.shortcut_ss = None
         self.shortcut_rec = None
         self.paste_key_seq = None
+        self._last_shortcut_conflict_signature: Optional[Tuple[str, ...]] = None
 
         self._history_refresh_timer = QTimer(self)
         self._history_refresh_timer.setSingleShot(True)
-        self._history_refresh_timer.setInterval(100)
+        self._history_refresh_timer.setInterval(HISTORY_REFRESH_DEBOUNCE_MS)
         self._history_refresh_timer.timeout.connect(self._do_history_refresh)
 
         self.setup_ui()
@@ -200,19 +207,23 @@ class PeckTeXMainWindow(QMainWindow):
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._initial_shown = False
 
+    @staticmethod
+    def _key_event_to_sequence(event) -> QKeySequence:
+        """兼容不同 PySide6 版本的按键组合 API。"""
+        if hasattr(event, "keyCombination"):
+            return QKeySequence(event.keyCombination().toCombined())
+        return QKeySequence(int(event.key()) | int(event.modifiers()))
+
     def eventFilter(self, obj, event):
         if event.type() == QEvent.Type.KeyPress:
             if self.paste_key_seq and not self.paste_key_seq.isEmpty():
                 if obj is self or (isinstance(obj, QWidget) and self.isAncestorOf(obj)):
-                    try:
-                        keys = event.keyCombination().toCombined()
-                        if QKeySequence(keys) == self.paste_key_seq:
-                            clipboard = QApplication.clipboard()
-                            if clipboard.mimeData().hasImage():
-                                self.paste_image(silent=True)
-                                return True
-                    except AttributeError:
-                        pass
+                    key_sequence = self._key_event_to_sequence(event)
+                    if key_sequence == self.paste_key_seq:
+                        clipboard = QApplication.clipboard()
+                        if clipboard.mimeData().hasImage():
+                            self.paste_image(silent=True)
+                            return True
         return super().eventFilter(obj, event)
 
     def resizeEvent(self, event):
@@ -242,7 +253,7 @@ class PeckTeXMainWindow(QMainWindow):
         try:
             if expanded:
                 target = min(self.chat_panel._expanded_height, total - 3 * min_panel)
-                target = max(target, 150)
+                target = max(target, CHAT_PANEL_MIN_EXPANDED_HEIGHT)
                 need = target - sizes[-1]
                 if need > 0:
                     others = sizes[:-1]
@@ -280,7 +291,7 @@ class PeckTeXMainWindow(QMainWindow):
         for worker in list(self._active_workers):
             if worker.isRunning():
                 worker.abort()
-                if not worker.wait(200):
+                if not worker.wait(WORKER_WAIT_TIMEOUT_MS):
                     worker.terminate()
                     worker.wait()
 
@@ -436,6 +447,11 @@ class PeckTeXMainWindow(QMainWindow):
             'paste': paste_sc,
             'recognize': rec_sc,
         })
+        self._warn_shortcut_conflicts({
+            "screenshot": ss_sc,
+            "paste": paste_sc,
+            "recognize": rec_sc,
+        })
 
         platforms = list(self.draft.get('platforms', {}).keys())
         self.settings_panel.platform_combo.clear()
@@ -482,6 +498,56 @@ class PeckTeXMainWindow(QMainWindow):
         self.settings_panel.check_auto_copy.blockSignals(False)
 
         self.chat_panel._max_log = self.draft.get('max_log', 100)
+
+    def _warn_shortcut_conflicts(self, shortcuts: dict) -> None:
+        """检测并提示快捷键冲突，避免同一按键绑定到多个动作。"""
+        normalized = {}
+        for action, value in shortcuts.items():
+            key = (value or "").strip()
+            if key:
+                normalized.setdefault(key, []).append(action)
+
+        conflicts = {key: actions for key, actions in normalized.items() if len(actions) > 1}
+        if not conflicts:
+            self._last_shortcut_conflict_signature = None
+            return
+
+        alias = {
+            "screenshot": "截图",
+            "paste": "粘贴",
+            "recognize": "识别",
+        }
+        signature = tuple(
+            sorted(
+                f"{key}:{','.join(sorted(actions))}"
+                for key, actions in conflicts.items()
+            )
+        )
+        if signature == self._last_shortcut_conflict_signature:
+            return
+
+        parts = []
+        for key, actions in sorted(conflicts.items()):
+            labels = "、".join(alias.get(action, action) for action in sorted(actions))
+            parts.append(f"{key} -> {labels}")
+        self.chat_panel.append_log("Sys", f"快捷键冲突：{'; '.join(parts)}。", icon="error")
+        self._last_shortcut_conflict_signature = signature
+
+    def _create_api_worker(
+        self,
+        config: APIConfig,
+        chunk_handler: Callable[[str], None],
+        done_handler: Callable[[], None],
+    ) -> None:
+        """统一创建并连接 APIWorker，减少重复连接逻辑。"""
+        worker = APIWorker(self.api, config, parent=self)
+        self.api_worker = worker
+        self._active_workers.add(worker)
+        worker.chunk_signal.connect(chunk_handler)
+        worker.finished_signal.connect(done_handler)
+        worker.error_signal.connect(self._on_api_error)
+        worker.finished.connect(self._cleanup_worker)
+        worker.start()
 
     def _ensure_platform_draft(self, plat: str):
         if not plat: return
@@ -829,7 +895,7 @@ class PeckTeXMainWindow(QMainWindow):
             if pixmap.isNull():
                 self.current_image_path = None
                 self.preview_panel.image_label.clear()
-                self.chat_panel.append_log("Sys", "加载失败：图片格式不支持或文件已损坏。", icon="error")
+                self.chat_panel.append_log("Sys", "图片加载失败：图片格式不支持或文件已损坏。", icon="error")
                 return False
 
             self.preview_panel.image_label.set_original_pixmap(pixmap)
@@ -837,10 +903,14 @@ class PeckTeXMainWindow(QMainWindow):
             if path is not None:
                 return self._try_auto_recognize()
             return False
-        except Exception as e:
+        except Exception:
             self.preview_panel.image_label.clear()
             self.chat_panel.append_log("Sys", "图片加载失败。", icon="error")
             return False
+
+    def _has_running_worker(self) -> bool:
+        """判断是否存在正在执行的后台任务。"""
+        return any(worker.isRunning() for worker in self._active_workers)
 
     def _try_auto_recognize(self) -> bool:
         if not self.settings_panel.check_auto_recognize.isChecked():
@@ -896,7 +966,7 @@ class PeckTeXMainWindow(QMainWindow):
 
     def start_screenshot(self):
         self.showMinimized()
-        QTimer.singleShot(400, self._do_screenshot)
+        QTimer.singleShot(SCREENSHOT_MINIMIZE_DELAY_MS, self._do_screenshot)
 
     def _do_screenshot(self):
         if not self.sc:
@@ -967,14 +1037,14 @@ class PeckTeXMainWindow(QMainWindow):
     def _load_next_folder_image(self):
         if not IMAGES_DIR.exists():
             IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-            self.chat_panel.set_status("图片文件夹已创建。", "info")
+            self.chat_panel.set_status("用户图片文件夹已创建。", "info")
             self.preview_panel.set_image_count(0, 0)
             return
         
         images = self._scan_folder_images()
         
         if not images:
-            self.chat_panel.set_status("图片文件夹为空。", "info")
+            self.chat_panel.set_status("用户图片文件夹为空。", "info")
             self.preview_panel.set_image_count(0, 0)
             self.preview_panel.set_folder_total(0)
             return
@@ -1003,6 +1073,10 @@ class PeckTeXMainWindow(QMainWindow):
             self.start_recognition()
 
     def start_recognition(self):
+        if self._has_running_worker():
+            self.chat_panel.append_log("Sys", "识别失败：已有任务正在执行，请先终止当前任务。", icon="error")
+            return
+
         self._is_text_mode = self.settings_panel.check_text_recognition.isChecked()
         self._is_continuous_mode = self.settings_panel.check_continuous.isChecked()
         
@@ -1013,7 +1087,7 @@ class PeckTeXMainWindow(QMainWindow):
         if not self._is_text_mode and self._is_continuous_mode and not self._continuous_mode_active:
             self._folder_images = self._scan_folder_images()
             if not self._folder_images:
-                self.chat_panel.append_log("Sys", "识别失败：图片文件夹为空。", icon="error")
+                self.chat_panel.append_log("Sys", "识别失败：用户图片文件夹为空。", icon="error")
                 return
             
             if self.current_image_path and self.current_image_path in self._folder_images:
@@ -1084,20 +1158,14 @@ class PeckTeXMainWindow(QMainWindow):
             prompt=prompt,
             img_path=img_path
         )
-        self.api_worker = APIWorker(self.api, config, parent=self)
-        self._active_workers.add(self.api_worker)
-        self.api_worker.chunk_signal.connect(self._on_recognize_chunk)
-        self.api_worker.finished_signal.connect(self._on_recognize_done)
-        self.api_worker.error_signal.connect(self._on_api_error)
-        self.api_worker.finished.connect(self._cleanup_worker)
-        self.api_worker.start()
+        self._create_api_worker(config, self._on_recognize_chunk, self._on_recognize_done)
 
     def abort_recognition(self):
         self.aborted = True
         self._continuous_mode_active = False
         for worker in list(self._active_workers):
             worker.abort()
-        self.chat_panel.append_log("Sys", "操作已终止。", icon="error")
+        self.chat_panel.append_log("Sys", "操作已取消。", icon="error")
         self.set_gui_processing_state(False, 'recognize')
 
     @staticmethod
@@ -1152,7 +1220,7 @@ class PeckTeXMainWindow(QMainWindow):
 
         if self._continuous_mode_active and self._is_continuous_mode:
             if recognition_success:
-                QTimer.singleShot(500, self._continue_next_image)
+                QTimer.singleShot(CONTINUOUS_RECOGNIZE_DELAY_MS, self._continue_next_image)
             else:
                 self._continuous_mode_active = False
                 self.set_gui_processing_state(False, 'recognize')
@@ -1166,7 +1234,14 @@ class PeckTeXMainWindow(QMainWindow):
             self.set_gui_processing_state(False, 'recognize')
             return
 
-        if self._active_workers:
+        if self._has_running_worker():
+            return
+
+        self._folder_images = self._scan_folder_images()
+        if not self._folder_images:
+            self._continuous_mode_active = False
+            self.set_gui_processing_state(False, 'recognize')
+            self.chat_panel.set_status("连续识别已停止：用户图片文件夹为空。", "info")
             return
 
         next_index = self._folder_image_index + 1
@@ -1192,12 +1267,16 @@ class PeckTeXMainWindow(QMainWindow):
         
         if self._continuous_mode_active:
             self._continuous_mode_active = False
-            self.chat_panel.append_log("Sys", "连续识别已终止。", icon="error")
+            self.chat_panel.append_log("Sys", "连续识别已取消。", icon="error")
         
         self.set_gui_processing_state(False)
 
     def send_chat(self, msg: str):
         if not msg:
+            return
+
+        if self._has_running_worker():
+            self.chat_panel.append_log("Sys", "发送失败：已有任务正在执行，请先终止当前任务。", icon="error")
             return
 
         params = self._validate_api_params("发送失败")
@@ -1227,19 +1306,13 @@ class PeckTeXMainWindow(QMainWindow):
             prompt=msg,
             img_path=img_path
         )
-        self.api_worker = APIWorker(self.api, config, parent=self)
-        self._active_workers.add(self.api_worker)
-        self.api_worker.chunk_signal.connect(self._on_chat_chunk)
-        self.api_worker.finished_signal.connect(self._on_chat_done)
-        self.api_worker.error_signal.connect(self._on_api_error)
-        self.api_worker.finished.connect(self._cleanup_worker)
-        self.api_worker.start()
+        self._create_api_worker(config, self._on_chat_chunk, self._on_chat_done)
 
     def abort_chat(self):
         self.aborted = True
         for worker in list(self._active_workers):
             worker.abort()
-        self.chat_panel.append_log("Sys", "会话已终止。", icon="error")
+        self.chat_panel.append_log("Sys", "会话已取消。", icon="error")
         self.set_gui_processing_state(False, 'chat')
 
     def _on_chat_chunk(self, chunk: str):
@@ -1391,6 +1464,10 @@ class PeckTeXMainWindow(QMainWindow):
         self.chat_panel.append_log("Sys", "对话已重置。", icon="success")
 
     def test_service(self):
+        if self._has_running_worker():
+            self.chat_panel.append_log("Sys", "测试失败：已有任务正在执行，请先终止当前任务。", icon="error")
+            return
+
         params = self._validate_api_params("测试失败")
         if not params:
             return
@@ -1415,5 +1492,5 @@ class PeckTeXMainWindow(QMainWindow):
         self.chat_panel.set_status("服务测试成功。", "success")
 
     def _on_test_error(self, err: str) -> None:
-        self.chat_panel.append_log("Sys", f"服务异常：{_ensure_punctuation(err)}", icon="error")
+        self.chat_panel.append_log("Sys", f"服务测试失败：{_ensure_punctuation(err)}", icon="error")
         self.chat_panel.set_status("服务测试失败。", "error")
