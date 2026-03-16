@@ -4,8 +4,11 @@ __pycache__/
 *.pyd
 *.pyo
 *.egg-info/
+
+# Build
 build/
 dist/
+*.spec
 
 # Code Editors
 .vscode/
@@ -23,12 +26,10 @@ ENV/
 
 # User Data (Runtime generated)
 userdata/
+*.json
 
 # Temporary
 assets/icons/temp/
-
-# Configuration (Sensitive)
-config.json
 
 # Logs
 *.log

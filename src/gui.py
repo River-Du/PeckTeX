@@ -34,12 +34,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QEvent
 from PySide6.QtGui import QPixmap, QShortcut, QKeySequence
 
-from settings import SettingsManager, CONFIG_DIR, IMAGES_DIR, HISTORY_DIR
-from api_client import FormulaAPIClient
-from screenshot import ScreenCapture
-from renderer import FormulaRenderer
-from gui_components import SettingsPanel, ImagePreviewPanel, ResultPanel, HistoryPanel, CollapsibleChatPanel, ImageViewerDialog
-import theme
+from .settings import SettingsManager, CONFIG_DIR, IMAGES_DIR, HISTORY_DIR, USER_DATA_ROOT
+from .api_client import FormulaAPIClient
+from .screenshot import ScreenCapture
+from .renderer import FormulaRenderer
+from .gui_components import SettingsPanel, ImagePreviewPanel, ResultPanel, HistoryPanel, CollapsibleChatPanel, ImageViewerDialog
+from . import theme
 
 
 _TERMINATORS = ("。", "！", "？", ".", "!", "?", "...", "…", "）", ")")
@@ -1343,8 +1343,7 @@ class PeckTeXMainWindow(QMainWindow):
         path = HISTORY_DIR / f"pecktex_history_{timestamp}.json"
         try:
             data = {
-                "version": 1,
-                "app": "PeckTeX",
+                "version": 1.0,
                 "exported_at": datetime.datetime.now().isoformat(),
                 "history": self.history
             }
@@ -1356,7 +1355,7 @@ class PeckTeXMainWindow(QMainWindow):
 
     def _import_history(self):
         """从 JSON 文件导入历史记录，覆盖当前记录"""
-        initial_dir = str(HISTORY_DIR) if HISTORY_DIR.exists() else str(Path(__file__).parent)
+        initial_dir = str(HISTORY_DIR) if HISTORY_DIR.exists() else str(USER_DATA_ROOT)
         path, _ = QFileDialog.getOpenFileName(
             self, "导入历史记录",
             initial_dir,

@@ -22,7 +22,7 @@ import html
 import base64
 from pathlib import Path
 from typing import Optional
-from settings import ICONS_DIR
+from .settings import ICONS_DIR
 
 
 _BRAND_NAME_CN = "啄玛"

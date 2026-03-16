@@ -74,12 +74,12 @@ The application GUI adopts a split-pane layout (left and right):
 
 **Basic Operating Environment**
 - OS: Windows 10/11
-- Python: `>= 3.8`
+- Python: >= 3.10
 
 **Core Dependencies**
-- PySide6 >= 6.5.0
-- openai >= 1.1.0
-- httpx >= 0.24.0
+- PySide6 >= 6.5.3
+- openai >= 1.30.1
+- httpx >= 0.27.0
 
 **Local Deployment Pipeline**
 

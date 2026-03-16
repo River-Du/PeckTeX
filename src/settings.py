@@ -13,6 +13,7 @@
 负责加载、保存和管理 config.json 用户配置文件，支持出厂默认配置，并自动补全缺失字段。
 """
 
+import sys
 import json
 import os
 import copy
@@ -20,23 +21,30 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 
-# 项目根目录和配置文件路径
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_DIR = PROJECT_ROOT
-CONFIG_FILE_NAME = "config.json"
+# 区分内置资源目录与用户数据目录，适配 PyInstaller 打包
+if getattr(sys, 'frozen', False):
+    RESOURCE_ROOT = Path(sys._MEIPASS)
+    USER_DATA_ROOT = Path(sys.executable).parent
+else:
+    RESOURCE_ROOT = Path(__file__).resolve().parent.parent
+    USER_DATA_ROOT = RESOURCE_ROOT
 
 # 用户数据目录
-USER_DATA_DIR = PROJECT_ROOT / "userdata"
+USER_DATA_DIR = USER_DATA_ROOT / "userdata"
 IMAGES_DIR = USER_DATA_DIR / "images"
 HISTORY_DIR = USER_DATA_DIR / "history"
 TEMP_DIR = USER_DATA_DIR / "temp"
 
-# 资源目录
-ASSETS_DIR = PROJECT_ROOT / "assets"
+# 配置文件路径
+CONFIG_DIR = USER_DATA_DIR / "config"
+CONFIG_FILE_NAME = "config.json"
+
+# 资源目录(只读)
+ASSETS_DIR = RESOURCE_ROOT / "assets"
 ICONS_DIR = ASSETS_DIR / "icons"
 
 # 确保目录存在
-for d in [IMAGES_DIR, HISTORY_DIR, TEMP_DIR]:
+for d in [IMAGES_DIR, HISTORY_DIR, TEMP_DIR, CONFIG_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_CONFIG = {

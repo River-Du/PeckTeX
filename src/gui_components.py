@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QEvent, QRect
 from PySide6.QtGui import QPixmap, QPainter, QTextBlockFormat, QTextCursor, QColor
 
-import theme
+from . import theme
 
 
 def _make_header_btn(text: str, tooltip: str = "", style_fn=None) -> QPushButton:
@@ -211,7 +211,7 @@ class SettingsPanel(QFrame):
         title_row.setContentsMargins(0, 0, 0, 0)
 
         title = QLabel("设置")
-        title.setStyleSheet(theme.label_title())
+        title.setStyleSheet(theme.label_section())
         title_row.addWidget(title)
         title_row.addStretch()
 
