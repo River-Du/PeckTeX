@@ -46,15 +46,7 @@ class FormulaRenderer:
     <title>PeckTeX — 公式预览</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {{
-            delimiters: [
-                {{left: '$$', right: '$$', display: true}},
-                {{left: '$', right: '$', display: false}},
-                {{left: '\\\\[', right: '\\\\]', display: true}},
-                {{left: '\\\\(', right: '\\\\)', display: false}}
-            ]
-        }});"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
@@ -79,13 +71,11 @@ class FormulaRenderer:
             font-size: 20px;
             min-height: 80px;
         }}
-        /* 每个独立公式块可横向滚动，多个块纵向排列 */
         .formula-block {{
             margin: 12px 0;
             overflow-x: auto;
             text-align: center;
         }}
-        /* 公式间的说明文字段落 */
         .formula-text {{
             margin: 8px 0;
             text-align: center;
@@ -102,10 +92,16 @@ class FormulaRenderer:
         .source-header {{
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 8px;
             margin-bottom: 12px;
         }}
         .source-label {{ font-size: 13px; font-weight: 600; color: #FF6B6B; flex: 1; }}
+        .source-hint {{
+            margin-top: 6px;
+            font-size: 11px;
+            color: #94A3B8;
+        }}
         .btn-copy {{
             padding: 5px 16px;
             background: #FF6B6B;
@@ -117,8 +113,14 @@ class FormulaRenderer:
             cursor: pointer;
         }}
         .btn-copy:hover {{ background: #E85A5A; }}
+        .btn-copy:disabled {{
+            background: #FFB4B4;
+            cursor: not-allowed;
+        }}
         .source-code {{
             display: block;
+            width: 100%;
+            min-height: 140px;
             padding: 14px 18px;
             background: #1E293B;
             color: #E2E8F0;
@@ -129,6 +131,8 @@ class FormulaRenderer:
             white-space: pre-wrap;
             word-break: break-all;
             border-radius: 8px;
+            outline: none;
+            resize: vertical;
         }}
         .toast {{
             position: fixed;
@@ -175,27 +179,113 @@ class FormulaRenderer:
         <div class="source-section">
             <div class="source-header">
                 <span class="source-label">LaTeX 源码</span>
+                <button class="btn-copy" id="btnRerender" onclick="rerenderFormula()">重新渲染</button>
                 <button class="btn-copy" onclick="downloadPage()">下载页面</button>
-                <button class="btn-copy" onclick="copyLatex()">复制 LaTeX</button>
+                <button class="btn-copy" onclick="copyLatex()">复制源码</button>
             </div>
-            <pre class="source-code" id="sourceCode">{source}</pre>
+            <textarea class="source-code" id="sourceCode" spellcheck="false">{source}</textarea>
+            <div class="source-hint">可直接编辑 LaTeX 源码，按 Ctrl/Cmd+Enter 可快捷重渲染</div>
         </div>
     </div>
     <p class="footer">Copyright © 2026 RiverDu · PeckTeX<br>LaTeX 渲染由 <a href="https://katex.org" style="color:#B0A1A1;">KaTeX</a> (MIT License) 提供 </p>
     <div class="toast" id="toast"></div>
     <script>
-        const rawLatex = document.getElementById('sourceCode').textContent;
+        const sourceCodeEl = document.getElementById('sourceCode');
+        const rerenderBtnEl = document.getElementById('btnRerender');
+        const formulaSectionEl = document.querySelector('.formula-section');
+        const beginEnvToken = '\\begin' + String.fromCharCode(123);
+        let lastRenderedLatex = sourceCodeEl.value || '';
+        const renderOptions = {{
+            delimiters: [
+                {{left: '$$', right: '$$', display: true}},
+                {{left: '$', right: '$', display: false}},
+                {{left: '\\[', right: '\\]', display: true}},
+                {{left: '\\(', right: '\\)', display: false}}
+            ]
+        }};
+
+        function updateRerenderButtonState() {{
+            rerenderBtnEl.disabled = (sourceCodeEl.value || '') === lastRenderedLatex;
+        }}
+
+        function escapeHtml(text) {{
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }}
+
+        function buildFormulaMarkup(rawLatex) {{
+            const raw = (rawLatex || '').trim();
+            if (!raw) {{
+                return '<p class="formula-text">请输入 LaTeX 源码后点击“重新渲染”。</p>';
+            }}
+
+            const hasDelimiters = raw.includes('$$') || raw.includes('\\[') || raw.includes('\\(') || raw.includes(beginEnvToken);
+            const isInline = raw.startsWith('$') && raw.endsWith('$') && !raw.includes('$$');
+
+            if (!hasDelimiters && !isInline) {{
+                return `<div class="formula-block">$$\n${{escapeHtml(raw)}}\n$$</div>`;
+            }}
+
+            const parts = raw.split(/(\$\$[\s\S]*?\$\$)/g);
+            const displayBlocks = parts.filter((part) => /^\$\$[\s\S]*\$\$$/.test(part));
+
+            if (displayBlocks.length <= 1) {{
+                return `<div class="formula-block">${{escapeHtml(raw)}}</div>`;
+            }}
+
+            const fragments = [];
+            for (const part of parts) {{
+                if (!part) {{
+                    continue;
+                }}
+                if (/^\$\$[\s\S]*\$\$$/.test(part)) {{
+                    fragments.push(`<div class="formula-block">${{escapeHtml(part)}}</div>`);
+                }} else if (part.trim()) {{
+                    fragments.push(`<p class="formula-text">${{escapeHtml(part.trim())}}</p>`);
+                }}
+            }}
+            return fragments.join('');
+        }}
+
+        function renderFormulaElement(targetElement) {{
+            if (typeof renderMathInElement !== 'function') {{
+                showToast('✗ KaTeX 资源未就绪，请稍后重试');
+                return false;
+            }}
+            try {{
+                renderMathInElement(targetElement, renderOptions);
+                return true;
+            }} catch (e) {{
+                showToast(`✗ 渲染失败: ${{e.message}}`);
+                return false;
+            }}
+        }}
+
+        function rerenderFormula() {{
+            const rawLatex = sourceCodeEl.value || '';
+            formulaSectionEl.innerHTML = buildFormulaMarkup(rawLatex);
+            if (renderFormulaElement(formulaSectionEl)) {{
+                lastRenderedLatex = rawLatex;
+                updateRerenderButtonState();
+                showToast('✓ 渲染完成');
+            }}
+        }}
 
         function downloadPage() {{
+            sourceCodeEl.textContent = sourceCodeEl.value;
             const blob = new Blob(['<!DOCTYPE html>' + document.documentElement.outerHTML], {{type: 'text/html;charset=utf-8'}});
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
             a.download = 'pecktex_formula.html';
             a.click();
             URL.revokeObjectURL(a.href);
+            showToast('✓ 页面已下载');
         }}
 
         function copyLatex() {{
+            const rawLatex = sourceCodeEl.value || '';
             navigator.clipboard.writeText(rawLatex).then(
                 () => showToast('✓ 已复制'),
                 () => {{
@@ -216,6 +306,18 @@ class FormulaRenderer:
             el.classList.add('show');
             setTimeout(() => el.classList.remove('show'), 1800);
         }}
+
+        sourceCodeEl.addEventListener('keydown', function(event) {{
+            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {{
+                event.preventDefault();
+                rerenderFormula();
+            }}
+        }});
+        sourceCodeEl.addEventListener('input', updateRerenderButtonState);
+        window.addEventListener('load', function() {{
+            renderFormulaElement(document.body);
+        }});
+        updateRerenderButtonState();
     </script>
 </body>
 </html>

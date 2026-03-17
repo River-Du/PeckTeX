@@ -997,16 +997,16 @@ class HistoryPanel(QFrame):
         layout.addWidget(self.scroll_area, stretch=1)
 
     def _toggle_scroll_position(self):
-        """在置顶和置底之间循环切换历史记录滚动位置"""
+        """在回到顶部和底部之间循环切换历史记录位置"""
         bar = self.scroll_area.verticalScrollBar()
         if self._scroll_to_bottom:
             bar.setValue(bar.maximum())
-            self.btn_scroll_toggle.setText("置顶")
+            self.btn_scroll_toggle.setText("顶部")
             self.btn_scroll_toggle.setToolTip("滚动到顶部")
             self._scroll_to_bottom = False
         else:
             bar.setValue(bar.minimum())
-            self.btn_scroll_toggle.setText("置底")
+            self.btn_scroll_toggle.setText("底部")
             self.btn_scroll_toggle.setToolTip("滚动到底部")
             self._scroll_to_bottom = True
 
