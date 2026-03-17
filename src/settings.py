@@ -132,6 +132,7 @@ class SettingsManager:
                 raise ValueError("配置文件格式不正确")
             self.settings_data = data
             self._ensure_required_keys()
+            self.last_error = None
         except FileNotFoundError:
             self.settings_data = self._get_default_settings()
             self.last_error = "已自动生成默认配置文件。"
@@ -252,6 +253,7 @@ class SettingsManager:
                 os.makedirs(config_dir, exist_ok=True)
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings_data, f, ensure_ascii=False, indent=4)
+            self.last_error = None
             return True
         except Exception:
             self.last_error = "保存配置失败。"

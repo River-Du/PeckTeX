@@ -23,6 +23,9 @@ from PySide6.QtGui import QCursor, QPixmap, QMouseEvent, QKeyEvent
 from PySide6.QtCore import Qt, QRect, QPoint
 
 
+_MIN_CAPTURE_SIZE = 8
+
+
 def _event_pos_to_point(event) -> QPoint:
     """兼容 PySide6 新旧版本事件坐标接口。"""
     if hasattr(event, "position"):
@@ -131,8 +134,8 @@ class CaptureWindow(QWidget):
             
             rect = QRect(self.start_point, self.end_point).normalized()
             
-            # 限制最小拖拽防误触
-            if rect.width() > 5 and rect.height() > 5:
+            # 限制最小拖拽防误触（逻辑像素）
+            if rect.width() > _MIN_CAPTURE_SIZE and rect.height() > _MIN_CAPTURE_SIZE:
                 # 换算至 QPixmap 的物理坐标系剪裁高清片段
                 physical_rect = QRect(
                     int(rect.x() * self.ratio),
@@ -145,8 +148,14 @@ class CaptureWindow(QWidget):
                 fd, path = tempfile.mkstemp(suffix='.png', prefix='pecktex_')
                 os.close(fd)
                 
-                cropped.save(path, "PNG", 100)
-                self.controller.finish_capture(path)
+                if cropped.save(path, "PNG", 100):
+                    self.controller.finish_capture(path)
+                else:
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                    self.controller.cancel_capture()
             else:
                 self.controller.cancel_capture()
 

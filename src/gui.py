@@ -841,6 +841,13 @@ class PeckTeXMainWindow(QMainWindow):
             self.chat_panel.btn_send.setEnabled(True)
             self.settings_panel.btn_test.setEnabled(True)
 
+    def _resolve_platform_api_url(self, platform_name: str) -> str:
+        """优先读取草稿缓存，其次读取 UI 输入框，避免未保存配置导致误判。"""
+        draft_url = self.draft.get('platforms', {}).get(platform_name, {}).get('api_url', '').strip()
+        if draft_url:
+            return draft_url
+        return self.settings_panel.api_url_entry.text().strip()
+
     def _validate_api_params(self, action: str) -> Optional[dict]:
         """校验通用 API 参数（平台、Key、模型、URL）。通过返回参数字典，失败返回 None 并记录日志"""
         platform = self.settings_panel.platform_combo.currentText().strip()
@@ -858,7 +865,7 @@ class PeckTeXMainWindow(QMainWindow):
             self.chat_panel.append_log("Sys", f"{action}：请先选择或填写一个模型。", icon="error")
             return None
 
-        api_url = self.draft.get('platforms', {}).get(platform, {}).get('api_url', '')
+        api_url = self._resolve_platform_api_url(platform)
         if not api_url:
             self.chat_panel.append_log("Sys", f"{action}：请先填写当前平台的 API URL。", icon="error")
             return None
@@ -1016,23 +1023,37 @@ class PeckTeXMainWindow(QMainWindow):
     def _open_image_folder(self):
         if not IMAGES_DIR.exists():
             IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-        
+
         abs_path = str(IMAGES_DIR.resolve())
-        if platform.system() == "Windows":
-            os.startfile(abs_path)
-        elif platform.system() == "Darwin":
-            subprocess.run(["open", abs_path])
-        else:
-            subprocess.run(["xdg-open", abs_path])
+        try:
+            if platform.system() == "Windows":
+                os.startfile(abs_path)
+            elif platform.system() == "Darwin":
+                subprocess.run(["open", abs_path], check=True)
+            else:
+                subprocess.run(["xdg-open", abs_path], check=True)
+        except Exception as e:
+            self.chat_panel.append_log("Sys", f"打开图片文件夹失败：{_ensure_punctuation(str(e))}", icon="error")
 
     def _scan_folder_images(self) -> List[str]:
         if not IMAGES_DIR.exists():
             return []
         image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'}
-        files = [str(f) for f in IMAGES_DIR.iterdir() if f.suffix.lower() in image_extensions]
+
+        def _safe_mtime(path: str) -> float:
+            try:
+                return os.path.getmtime(path)
+            except OSError:
+                return 0.0
+
+        try:
+            files = [str(f) for f in IMAGES_DIR.iterdir() if f.suffix.lower() in image_extensions]
+        except OSError as e:
+            self.chat_panel.append_log("Sys", f"读取图片文件夹失败：{_ensure_punctuation(str(e))}", icon="error")
+            return []
         if self.draft.get('image_sort', 'time') == 'name':
             return sorted(files, key=lambda x: os.path.basename(x).lower())
-        return sorted(files, key=lambda x: os.path.getmtime(x))
+        return sorted(files, key=_safe_mtime)
 
     def _load_next_folder_image(self):
         if not IMAGES_DIR.exists():
@@ -1346,6 +1367,8 @@ class PeckTeXMainWindow(QMainWindow):
         worker = self.sender()
         if worker in self._active_workers:
             self._active_workers.remove(worker)
+        if worker is self.api_worker:
+            self.api_worker = None
         if worker:
             worker.deleteLater()
 
@@ -1374,6 +1397,8 @@ class PeckTeXMainWindow(QMainWindow):
                 path = FormulaRenderer.render(txt)
                 if path:
                     self._temp_files.add(path)
+                else:
+                    self.chat_panel.append_log("Sys", "预览失败：识别结果为空。", icon="error")
             except Exception as e:
                 err_str = str(e)
                 self.chat_panel.append_log("Sys", f"预览失败：{_ensure_punctuation(err_str)}", icon="error")
