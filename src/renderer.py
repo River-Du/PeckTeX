@@ -30,11 +30,6 @@ _BRAND_NAME_EN = "PeckTeX"
 _BRAND_SLOGAN_CN = "AI驱动的图片转LaTeX助手"
 _BRAND_SLOGAN_EN = "From Image to LaTeX, just a peck away"
 
-_MARKDOWN_FENCE_RE = re.compile(r'^\s*```(?:latex)?\s*(.*?)\s*```\s*$', flags=re.DOTALL | re.IGNORECASE)
-_DISPLAY_SPLIT_RE = re.compile(r'(\$\$.*?\$\$)', flags=re.DOTALL)
-_DISPLAY_BLOCK_RE = re.compile(r'\$\$.*\$\$', flags=re.DOTALL)
-_DELIMITER_TOKENS = ('$$', '\\[', '\\(', '\\begin{')
-
 
 class FormulaRenderer:
     """
@@ -192,7 +187,7 @@ class FormulaRenderer:
             <div class="source-hint">可直接编辑 LaTeX 源码，按 Ctrl/Cmd+Enter 可快捷重渲染</div>
         </div>
     </div>
-    <p class="footer">Copyright © 2026 RiverDu · PeckTeX<br>LaTeX 渲染由 <a href="https://katex.org" style="color:#B0A1A1;">KaTeX</a> (MIT License) 提供 </p>
+    <p class="footer">Copyright © 2026 RiverDu · PeckTeX<br>LaTeX 渲染由 <a href="https://katex.org" style="color:#B0A1A1;">KaTeX</a> (<span style="font-style:normal;">MIT License</span>) 提供 </p>
     <div class="toast" id="toast"></div>
     <script>
         const sourceCodeEl = document.getElementById('sourceCode');
@@ -330,11 +325,6 @@ class FormulaRenderer:
 
     _icon_data_uri_cache: Optional[str] = None
 
-    @staticmethod
-    def _normalize_raw_code(latex_code: str) -> str:
-        """剥离最外层 Markdown 代码围栏，并返回清洗后的源码。"""
-        return _MARKDOWN_FENCE_RE.sub(r'\1', latex_code.strip()).strip()
-
     @classmethod
     def _load_icon_data_uri(cls) -> str:
         """将应用图标转换为 PNG base64 data URI（确保浏览器兼容），缓存结果；失败时返回空字符串"""
@@ -370,8 +360,8 @@ class FormulaRenderer:
             return f'<div class="formula-block">$$\n{html.escape(raw_code)}\n$$</div>'
 
         # 尝试按 $$...$$ 分割，统计独立公式块数量
-        parts = _DISPLAY_SPLIT_RE.split(raw_code)
-        display_blocks = [p for p in parts if _DISPLAY_BLOCK_RE.fullmatch(p)]
+        parts = re.split(r'(\$\$.*?\$\$)', raw_code, flags=re.DOTALL)
+        display_blocks = [p for p in parts if re.fullmatch(r'\$\$.*\$\$', p, re.DOTALL)]
 
         if len(display_blocks) <= 1:
             # 单个公式块（或使用 \[ \] 等其它定界符），整体包装
@@ -382,7 +372,7 @@ class FormulaRenderer:
         for part in parts:
             if not part:
                 continue
-            if _DISPLAY_BLOCK_RE.fullmatch(part):
+            if re.fullmatch(r'\$\$.*\$\$', part, re.DOTALL):
                 result.append(f'<div class="formula-block">{html.escape(part)}</div>')
             elif part.strip():
                 result.append(f'<p class="formula-text">{html.escape(part.strip())}</p>')
@@ -400,7 +390,10 @@ class FormulaRenderer:
             
         try:
             # 去掉代码最外层可能附带的 Markdown 重复外壳，防止 KaTeX 解析出双重 $$
-            raw_code = cls._normalize_raw_code(latex_code)
+            raw_code = re.sub(
+                r'^\s*```(?:latex)?\s*(.*?)\s*```\s*$', r'\1',
+                latex_code.strip(), flags=re.DOTALL | re.IGNORECASE
+            ).strip()
             if not raw_code:
                 return None
 
@@ -409,7 +402,7 @@ class FormulaRenderer:
             escaped = html.escape(raw_code)
 
             # 环境自适应补全：若大模型未提供定界符，则主动补上 $$ 触发块级渲染
-            has_delimiters = any(token in raw_code for token in _DELIMITER_TOKENS)
+            has_delimiters = any(token in raw_code for token in ('$$', '\\[', '\\(', '\\begin{'))
             # 行内公式：以单 $ 包裹，且内部不含 $$ 双符
             is_inline = raw_code.startswith('$') and raw_code.endswith('$') and '$$' not in raw_code
             # 构建公式 HTML：多公式竖排，单公式或行内公式直接包装
@@ -425,17 +418,16 @@ class FormulaRenderer:
             # 生成独立的临时 HTML 文件，防止高频预览时产生并发覆写冲突
             filename = f"pecktex_preview_{int(time.time() * 1000)}.html"
             path = os.path.join(tempfile.gettempdir(), filename)
-            template_args = {
-                "formula": formula_html,
-                "source": escaped,
-                "icon_html": icon_html,
-                "name_cn": _BRAND_NAME_CN,
-                "name_en": _BRAND_NAME_EN,
-                "slogan_cn": _BRAND_SLOGAN_CN,
-                "slogan_en": _BRAND_SLOGAN_EN,
-            }
             with open(path, 'w', encoding='utf-8') as f:
-                f.write(cls.HTML_TEMPLATE.format(**template_args))
+                f.write(cls.HTML_TEMPLATE.format(
+                    formula=formula_html,
+                    source=escaped,
+                    icon_html=icon_html,
+                    name_cn=_BRAND_NAME_CN,
+                    name_en=_BRAND_NAME_EN,
+                    slogan_cn=_BRAND_SLOGAN_CN,
+                    slogan_en=_BRAND_SLOGAN_EN,
+                ))
 
             webbrowser.open(Path(path).resolve().as_uri())
             return path
