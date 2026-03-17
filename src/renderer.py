@@ -74,6 +74,7 @@ class FormulaRenderer:
         .formula-block {{
             margin: 12px 0;
             overflow-x: auto;
+            overflow-y: hidden;
             text-align: center;
         }}
         .formula-text {{
@@ -83,7 +84,7 @@ class FormulaRenderer:
             font-size: 14px;
             line-height: 1.6;
         }}
-        .katex-display {{ overflow-x: auto; padding: 4px 0; margin: 0 !important; }}
+        .katex-display {{ overflow-x: auto; overflow-y: hidden; padding: 4px 0; margin: 0 !important; }}
         .divider {{ height: 1px; background: #e8ecf0; }}
         .source-section {{
             padding: 20px 28px;
