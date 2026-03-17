@@ -225,8 +225,9 @@ def combobox_style() -> str:
             background-color: {THEME['input_bg']};
             border: none;
             border-radius: 6px;
-            padding: 4px 6px;
+            padding: 4px 2px;
             color: {THEME['text_primary']};
+            font-size: 12px;
         }}
         QComboBox:hover {{
             background-color: {THEME['input_bg_hover']};
@@ -256,6 +257,7 @@ def combobox_style() -> str:
             selection-background-color: {THEME['brand_primary_light']};
             selection-color: {THEME['text_primary']};
             outline: none;
+            font-size: 12px;
         }}
         QComboBox QAbstractItemView::item {{
             padding: 2px 8px;
@@ -268,6 +270,7 @@ def combobox_style() -> str:
             background: transparent;
             border: none;
             color: {THEME['text_primary']};
+            font-size: 12px;
         }}
         QLineEdit:disabled {{
             color: {THEME['text_hint']};
