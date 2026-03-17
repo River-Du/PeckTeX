@@ -22,7 +22,8 @@ import html as html_lib
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QPushButton, QLabel,
     QComboBox, QLineEdit, QTextEdit, QScrollArea, QFrame, QMenu,
-    QSizePolicy, QDialog, QStyledItemDelegate, QStyle, QStyleOptionComboBox, QStyleOptionViewItem, QCheckBox
+    QSizePolicy, QDialog, QStyledItemDelegate, QStyle, QStyleOptionComboBox, QStyleOptionViewItem, QCheckBox,
+    QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
 )
 from PySide6.QtCore import Qt, Signal, QEvent, QRect, QSize
 from PySide6.QtGui import QPixmap, QPainter, QTextBlockFormat, QTextCursor, QColor, QFocusEvent
@@ -547,49 +548,61 @@ class ImageViewerDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.scroll_area = QScrollArea(self)
-        self.scroll_area.setWidgetResizable(False)
-        self.scroll_area.setStyleSheet(f"QScrollArea {{ {theme.image_viewer_bg()} border: none; }}")
-        self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._zoom = 1.0
+        self._zoom_min = 0.1
+        self._zoom_max = 15.0
+        self._zoom_in_step = 1.15
+        self._zoom_out_step = 1.0 / self._zoom_in_step
 
-        self.image_label = QLabel()
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setStyleSheet(theme.image_viewer_bg())
-        self.image_label.setScaledContents(True)
+        self.view = QGraphicsView(self)
+        self.view.setStyleSheet(f"QGraphicsView {{ {theme.image_viewer_bg()} border: none; }}")
+        self.view.setRenderHints(
+            QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
+        )
+        self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
 
-        self.pixmap = QPixmap(image_path)
-        self.pixmap.setDevicePixelRatio(self.devicePixelRatioF())
-        self.image_label.setPixmap(self.pixmap)
+        self.scene = QGraphicsScene(self.view)
+        self.view.setScene(self.scene)
 
-        self.base_size = self.pixmap.size() / self.devicePixelRatioF()
-        self.image_label.resize(self.base_size)
+        pixmap = QPixmap(image_path)
+        if pixmap.isNull():
+            self._pixmap_item = None
+        else:
+            self._pixmap_item = QGraphicsPixmapItem(pixmap)
+            self.scene.addItem(self._pixmap_item)
+            self.scene.setSceneRect(self._pixmap_item.boundingRect())
 
-        self.scroll_area.setWidget(self.image_label)
-        layout.addWidget(self.scroll_area)
+        self.view.wheelEvent = self._on_wheel_zoom
+        layout.addWidget(self.view)
 
-        self.scale_factor = 1.0
+    def _on_wheel_zoom(self, event):
+        if self._pixmap_item is None:
+            event.accept()
+            return
 
-    def wheelEvent(self, event):
         angle = event.angleDelta().y()
-        old_factor = self.scale_factor
+        if angle == 0:
+            event.accept()
+            return
 
-        if angle > 0:
-            self.scale_factor *= 1.15
-        elif angle < 0:
-            self.scale_factor *= 0.85
+        factor = self._zoom_in_step if angle > 0 else self._zoom_out_step
+        new_zoom = self._zoom * factor
 
-        self.scale_factor = max(0.1, min(self.scale_factor, 15.0))
+        if new_zoom < self._zoom_min:
+            factor = self._zoom_min / self._zoom
+            self._zoom = self._zoom_min
+        elif new_zoom > self._zoom_max:
+            factor = self._zoom_max / self._zoom
+            self._zoom = self._zoom_max
+        else:
+            self._zoom = new_zoom
 
-        new_size = self.base_size * self.scale_factor
-        self.image_label.resize(new_size)
-
-        factor_change = self.scale_factor / old_factor
-        def adjust_scrollbar(scrollbar):
-            scrollbar.setValue(int(factor_change * scrollbar.value() + ((factor_change - 1) * scrollbar.pageStep() / 2)))
-
-        adjust_scrollbar(self.scroll_area.horizontalScrollBar())
-        adjust_scrollbar(self.scroll_area.verticalScrollBar())
-
+        self.view.scale(factor, factor)
         event.accept()
 
 
