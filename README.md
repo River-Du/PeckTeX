@@ -4,7 +4,7 @@
    <img src="docs/about/app.png" alt="PeckTeX Logo" width="128"/>
    <h3>AI 驱动的图片转 LaTeX 桌面工具</h3>
 
-   [![Version](https://img.shields.io/badge/Version-v1.0-orange.svg)](https://github.com/River-Du/PeckTeX/releases)
+   [![Version](https://img.shields.io/badge/Version-v1.2-orange.svg)](https://github.com/River-Du/PeckTeX/releases)
    [![AI Assisted](https://img.shields.io/badge/AI_Assisted-Development-blueviolet.svg)](#)
    [![Python >= 3.10](https://img.shields.io/badge/Python->=3.10-blue.svg)](https://www.python.org/)
    [![PySide6](https://img.shields.io/badge/PySide6-GUI-green.svg)](https://wiki.qt.io/Qt_for_Python)
@@ -45,7 +45,7 @@
 
 **LaTeX 预览页面截图：**
 
-识别结果的 LaTeX 预览通过调用本地浏览器进行展示。
+识别结果的 LaTeX 预览通过调用本地浏览器进行展示。可进行编辑和重新渲染。
 
 ![KaTeX网页预览](docs/about/render.png)
 

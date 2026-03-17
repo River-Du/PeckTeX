@@ -39,7 +39,7 @@ def main():
     icon_path = os.path.join(str(ICONS_DIR), "app_64.ico")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
-    window = PeckTeXMainWindow("啄玛 PeckTeX -- AI驱动的图片转LaTeX助手 v1.0")
+    window = PeckTeXMainWindow("啄玛 PeckTeX -- AI驱动的图片转LaTeX助手 v1.2")
     window.show()
     sys.exit(app.exec())
 
