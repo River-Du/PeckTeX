@@ -153,6 +153,7 @@ build.bat --release
    - All interactive buttons provide hover tooltips.
    - All settings (API, functions, shortcuts, checkbox options) can be edited directly in `userdata/config/config.json`.
    - Common options can also be edited in the UI and saved via `Save Config`.
+   - **Context & Token Usage**: By default, each new recognition task is treated as an independent request without accumulating ongoing conversation context. This ensures minimal API Token consumption. To persist context across multiple recognitions or chat rounds (e.g., for continued corrections), enable the `continuous_chat` option in the configuration file.
 
 ## Configuration File Reference
 
