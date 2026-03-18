@@ -48,6 +48,12 @@ LaTeX previews are displayed in the local system browser. You can edit and re-re
 
 ![KaTeX Render Preview](docs/about/render.png)
 
+**AI Chat and Correction Screenshot:**
+
+Upon expanding the logs panel, users can chat with AI directly, ask for formula corrections, and easily append the modified results to the recognition area.
+
+![AI Chat and Correction](docs/about/assistant.png)
+
 ## Features
 
 - **Convenient Image Input**: Supports screenshot capture, clipboard paste, local file import/drag-and-drop, and loading images from the user image folder.
@@ -240,6 +246,14 @@ If you migrate to another machine or location, back up and move the whole `userd
 
 ## Frequently Asked Questions (FAQ)
 
+**Q: I don't have an API Key. What should I do?**
+
+A: **The application is essentially an empty shell for processing flows and is not tied to any paid services.** Users can visit corresponding API provider websites to register an account and obtain an API Key, ensuring the key has permission to access Vision Large Models (VLMs). The software itself consumes a minimal amount of tokens, so it is cost-effective to use.
+
+Common API platforms, such as LLM aggregators like Siliconflow, ModelScope, OpenRouter, or first-party developers like Zhipu GLM, Qwen, or Kimi, usually provide free trial credits upon registration, and some even offer free basic vision model nodes. Generate your exclusive API Key in their console, copy it, and fill it into the software to start running. **Please note: Ensure the selected model supports image understanding (i.e., a VLM).** Please refer to the API documentation of the corresponding platform for details.
+
+If you still need help, try searching for keywords like: "free LLM API platforms," "how to get an LLM API Key," or "LLM API application and usage."
+
 **Q: What should I check if recognition fails?**
 
 A: Confirm API configuration first and verify it using `API Test`. If test fails, open `Operation Logs` and check detailed errors. Typical checks: API settings, key permissions, visual model selection, network connectivity, and retry timing.
@@ -255,10 +269,6 @@ A: Type the target model ID manually in the `Model` field and confirm. As long a
 **Q: Does it support batch recognition?**
 
 A: Yes. Put images into the user `Image Folder`, enable `Continuous recognize`, then click `Start Recognize`.
-
-**Q: I don't have an API Key. What should I do?**
-
-A: Register on a supported provider platform and obtain a key with vision model access permission.
 
 **Q: Does the app support language switching?**
 
